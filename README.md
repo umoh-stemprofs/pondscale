@@ -7,7 +7,8 @@ grown, and the market value of the fish still in the pond.
 
 Decision-support tool. You decide.
 
-Status: **step 2 of 8 — market feed + weather.** No FCR logic or screens yet.
+Status: **step 4A of 8 — login, signup, dashboard shell, ponds, farm settings.**
+The new-check wizard (4B) and the result/history screens are next.
 
 ## Stack
 
@@ -21,7 +22,7 @@ All dates and times use `APP_TZ` (default `Africa/Lagos`).
 
 ```bash
 npm install
-cp .env.example .env      # then set DATABASE_URL
+cp .env.example .env      # then set DATABASE_URL and SESSION_SECRET
 npm run db:migrate        # create the tables
 npm run db:seed           # one pond per check status, feed price, fish prices
 npm run dev               # http://localhost:3000
@@ -29,6 +30,11 @@ npm test                  # Vitest: generator, provider fallback, weather, alert
 ```
 
 `npm run typecheck` runs TypeScript. `npm run db:studio` opens Prisma Studio.
+
+Environment variables (see `.env.example`): `DATABASE_URL`, `APP_TZ`,
+`SESSION_SECRET` (required — a random 32-byte value; the app refuses to start
+without it), `DEMO_MODE` (`true` shows the "Try demo account" button), and the
+optional `OWM_API_KEY` / `MARKET_API_URL`. Never commit `.env`.
 
 `npm run db:seed` is idempotent: re-running it converges on the same demo rows.
 
@@ -108,10 +114,32 @@ prices are **placeholders**. An expert must review them before any real use.
   falls (−0.2%) while CATFISH rises (+1.2%). The trends test prints the
   14-day trend for every crop.
 
+## Auth, shell and ponds (step 4A)
+
+- **Auth** (`lib/auth.ts`, `lib/actions/auth.ts`, `lib/session*.ts`):
+  email + password (at least 8 characters), bcrypt cost 10, Zod on every
+  server input, one plain sentence on failure. Sessions are iron-session: an
+  httpOnly, sameSite=lax cookie (`pondscale_session`), secure in production,
+  14-day lifetime. The secret comes from `SESSION_SECRET` only.
+- **Protection** (`middleware.ts` + `lib/guards.ts`): every page except
+  `/login` and `/signup` needs a session, and each page and server action
+  re-checks it. Pond reads go through `pondForFarm`, which puts `farmId` in
+  the WHERE clause, so a farmer can never reach another farmer's pond.
+- **Shell** (`components/AppShell.tsx`): 240 px sidebar at 1024 px+, top bar
+  from 640 px, phone bottom nav with four items. Settings and Log out stay in
+  the top bar/sidebar so the phone nav never exceeds four.
+- **Screens**: `/login`, `/signup`, `/` (dashboard), `/ponds`,
+  `/market`, `/weather`, `/settings`. The dashboard shows four stat cards, the
+  pond list with each pond's last status, weather and fish prices; every data
+  card keeps its Live / Saved data / Simulated badge.
+- **Weather resilience**: if the farm lookup fails, the weather card still
+  loads from the default coordinates and saves no snapshot.
+- **Tests**: `lib/auth.test.ts` (signup validation, wrong password, hashed
+  storage) and `lib/ownership.test.ts` (a farmer cannot read another
+  farmer's pond).
+
 ## Next steps
 
-3. `fcr.ts` + tests (each of the 5 statuses, equal
-weights, feedKg 0 rejected, FCR exactly 1.8 → not "too much", exactly 1.0 →
-not "check numbers", days < 7 note) · 4. New-check wizard (3 steps) + Zod
-server validation · 5. Result screen + money · 6. History chart ·
-7. Dashboard estimated market value · 8. Full click-through.
+4B. New-check wizard (3 steps) + Zod server validation · 5. Result screen +
+money · 6. History chart · 7. Dashboard estimated market value ·
+8. Full click-through.

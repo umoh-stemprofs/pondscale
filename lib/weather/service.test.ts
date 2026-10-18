@@ -128,6 +128,33 @@ describe("getWeather", () => {
     }
   });
 
+  it("still shows fresh weather when the snapshot store is down (farm lookup failed)", async () => {
+    // docs/02-pondscale.md step 4A rule 4: a slow database must not hide the
+    // weather — fetch live, skip saving, and never touch a farmId that is null.
+    const saved: string[] = [];
+    const store: SnapshotStore = {
+      latest: async () => {
+        throw new Error("database timeout");
+      },
+      save: async (farmId) => {
+        saved.push(farmId);
+      },
+    };
+    const fetcher = vi.fn(async () => sampleData);
+    const result = await getWeather({
+      farmId: null,
+      lat: 4.8156,
+      lon: 7.0498,
+      store,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.live).toBe(true);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(saved).toEqual([]);
+  });
+
   it("ignores a fresh-looking snapshot with a corrupt payload and refetches", async () => {
     const corrupt: WeatherSnapshotRecord = {
       fetchedAt: new Date(NOW.getTime() - 5 * 60_000),

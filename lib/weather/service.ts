@@ -9,6 +9,12 @@ import { weatherDataSchema, type WeatherData } from "./schemas";
 // WeatherSnapshot. Fresh-enough snapshots are served directly; when the live
 // call fails, the last snapshot is served with live=false so the badge shows
 // "Saved data · X h old". With no snapshot at all, an error the page can show.
+//
+// Resilience (docs/02-pondscale.md step 4A rule 4): the database being slow
+// must never take the weather card down. farmId=null means "no snapshot
+// cache" (used when the farm lookup failed and we fall back to the default
+// coordinates), and store read/save failures are swallowed — a fresh fetch is
+// still shown rather than an error.
 
 export interface WeatherSnapshotRecord {
   fetchedAt: Date;
@@ -67,7 +73,9 @@ export type WeatherResult =
   | { ok: false; error: string };
 
 export interface GetWeatherOptions {
-  farmId: string;
+  /// null = no snapshot cache (farm lookup failed or unavailable): fetch
+  /// live and save nothing.
+  farmId: string | null;
   lat: number;
   lon: number;
   store?: SnapshotStore;
@@ -88,7 +96,15 @@ export async function getWeather(options: GetWeatherOptions): Promise<WeatherRes
     };
   }
 
-  const cached = await store.latest(farmId);
+  // A slow database must not break the card: treat a failed read as "no cache".
+  let cached: WeatherSnapshotRecord | null = null;
+  if (farmId !== null) {
+    try {
+      cached = await store.latest(farmId);
+    } catch {
+      cached = null;
+    }
+  }
   const ageMinutes = cached ? (now().getTime() - cached.fetchedAt.getTime()) / 60_000 : Infinity;
 
   // Serve a fresh snapshot instead of hammering the provider (30-min cache).
@@ -101,7 +117,14 @@ export async function getWeather(options: GetWeatherOptions): Promise<WeatherRes
 
   try {
     const fresh = await fetcher(lat, lon);
-    await store.save(farmId, fresh);
+    // A slow database must not break a good fetch: skip saving, still show it.
+    if (farmId !== null) {
+      try {
+        await store.save(farmId, fresh);
+      } catch {
+        // Snapshot not saved — weather stays on screen (docs/02 step 4A rule 4).
+      }
+    }
     return { ok: true, live: true, ...fresh };
   } catch {
     // Live call failed (timeout, network, unexpected shape). Fall back to the
