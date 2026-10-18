@@ -18,6 +18,15 @@ export const WEATHER_ALERTS = {
   DAMP_HUMIDITY: 80,
 } as const;
 
+/// Species limits for the FCR check (docs/02-pondscale.md, Logic rule 5/6).
+/// SAMPLE values — confirm with a fish expert before any real use.
+/// fcrMax: above this, feed is too much. adgMin: g per fish per day below
+/// which growth counts as slow (FCR alone cannot show underfeeding).
+export const SPECIES_LIMITS = {
+  TILAPIA: { fcrMax: 1.8, adgMin: 1.0 },
+  CATFISH: { fcrMax: 1.8, adgMin: 2.0 },
+} as const;
+
 /// Default farm location: Port Harcourt (docs/00-global.md §3).
 export const DEFAULT_FARM_LOCATION = {
   name: "Port Harcourt",
