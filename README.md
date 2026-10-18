@@ -7,7 +7,7 @@ grown, and the market value of the fish still in the pond.
 
 Decision-support tool. You decide.
 
-Status: **step 1 of 8 — schema + seed.** No FCR logic, weather or screens yet.
+Status: **step 2 of 8 — market feed + weather.** No FCR logic or screens yet.
 
 ## Stack
 
@@ -25,6 +25,7 @@ cp .env.example .env      # then set DATABASE_URL
 npm run db:migrate        # create the tables
 npm run db:seed           # one pond per check status, feed price, fish prices
 npm run dev               # http://localhost:3000
+npm test                  # Vitest: generator, provider fallback, weather, alerts
 ```
 
 `npm run typecheck` runs TypeScript. `npm run db:studio` opens Prisma Studio.
@@ -87,9 +88,29 @@ is visible from day one:
 Feed prices, FCR limits (Tilapia/Catfish fcrMax 1.8, adgMin 1.0 / 2.0) and
 prices are **placeholders**. An expert must review them before any real use.
 
+## Market + weather (step 2)
+
+- **Market feed** (`/lib/market/`): deterministic generator (same crop + date
+  always gives the same price), nine-crop catalog, `MarketProvider` adapter —
+  simulated by default, live via `MARKET_API_URL` with automatic fallback.
+  Routes: `GET /api/market/prices` and `GET /api/market/history?crop&days`
+  (Zod-validated, 1–90 days). Quotes are cached into `PriceTick`. Full
+  documentation with samples: [docs/api.md](docs/api.md).
+- **Weather** (`/lib/weather/`): Open-Meteo by default (no key),
+  OpenWeatherMap when `OWM_API_KEY` is set. Shapes verified against docs and
+  a live call, validated with Zod. Server-only, 5 s timeout, one retry,
+  30-minute cache in `WeatherSnapshot`. On failure the last snapshot is
+  served with the "Saved data" badge; with no snapshot, an error card with a
+  Retry button.
+- **Pond alert**: any day ≥ 34 °C, or ≥ 20 mm rain tomorrow → "Fish eat less
+  on hot or stormy days. Feed 10% less today."
+- Salts are tuned so the demo always shows both directions — today TILAPIA
+  falls (−0.2%) while CATFISH rises (+1.2%). The trends test prints the
+  14-day trend for every crop.
+
 ## Next steps
 
-2. Market + weather · 3. `fcr.ts` + tests (each of the 5 statuses, equal
+3. `fcr.ts` + tests (each of the 5 statuses, equal
 weights, feedKg 0 rejected, FCR exactly 1.8 → not "too much", exactly 1.0 →
 not "check numbers", days < 7 note) · 4. New-check wizard (3 steps) + Zod
 server validation · 5. Result screen + money · 6. History chart ·

@@ -1,8 +1,14 @@
 import { CheckStatus, Crop } from "@prisma/client";
+import { DataSourceBadge, type BadgeState } from "@/components/DataSourceBadge";
 import { db } from "@/lib/db";
+import { todayIso } from "@/lib/dates";
+import { getMarketProvider, type MarketQuote } from "@/lib/market/provider";
+import { pondWeatherAlert } from "@/lib/weather/alerts";
+import { getWeather, prismaSnapshotStore, type WeatherResult } from "@/lib/weather/service";
 
-// Step 1 smoke check: proves the schema, migration and seed work through the
-// app. Replaced by the dashboard in a later step, so it is deliberately plain.
+// Step 1 + 2 check: proves schema, seed, the market feed and the weather
+// provider work through the app. Replaced by the dashboard in a later step,
+// so it is deliberately plain.
 export const dynamic = "force-dynamic";
 
 const naira = (kobo: number) => `₦${(kobo / 100).toLocaleString("en-NG")}`;
@@ -16,10 +22,30 @@ const STATUS: Record<CheckStatus, { label: string; icon: string; cls: string }> 
   NO_GROWTH: { label: "No growth", icon: "×", cls: "bg-danger-bg text-danger" },
 };
 
-const fmtDay = (d: Date) =>
-  d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+const fmtDay = (input: string | Date) => {
+  const iso = typeof input === "string" ? input : input.toISOString().slice(0, 10);
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+};
 
-export default async function StepOneCheck() {
+const fmtWeekday = (iso: string) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-GB", {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+};
+
+function quoteBadge(quote: MarketQuote): BadgeState {
+  return quote.source === "LIVE" ? { kind: "live", ageMinutes: 0 } : { kind: "simulated" };
+}
+
+export default async function StepTwoCheck() {
   let content: React.ReactNode;
 
   try {
@@ -42,16 +68,78 @@ export default async function StepOneCheck() {
         </p>
       );
     } else {
-      const ticks = await db.priceTick.findMany({
-        where: { crop: { in: [Crop.TILAPIA, Crop.CATFISH] } },
-        orderBy: { date: "desc" },
-        take: 14,
-      });
-      const latestPrice = (crop: Crop) => ticks.find((t) => t.crop === crop);
-      const feedPrice = farm.feedPrices[0];
+      // --- Market feed (server-side) -------------------------------------
+      const provider = getMarketProvider();
+      let fishPrices: React.ReactNode;
+      try {
+        const quotes = await provider.getPrices();
+        const today = todayIso();
+        const cards = await Promise.all(
+          [Crop.TILAPIA, Crop.CATFISH].map(async (crop) => {
+            const quote = quotes.find((q) => q.crop === crop);
+            if (!quote) return null;
+            const history = await provider.getHistory(crop, 2);
+            const previous = history[history.length - 2];
+            const changePct =
+              previous && previous.priceKobo > 0
+                ? Math.round(((quote.priceKobo - previous.priceKobo) / previous.priceKobo) * 1000) / 10
+                : null;
+            return { crop, quote, changePct };
+          }),
+        );
+        fishPrices = (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {cards.map((card) =>
+              card ? (
+                <div
+                  key={card.crop}
+                  className="rounded-card border border-border bg-surface p-4 shadow-card"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-sm font-medium text-muted">{card.crop}</p>
+                    <DataSourceBadge state={quoteBadge(card.quote)} />
+                  </div>
+                  <p className="mt-1 text-2xl font-bold tabular-nums">
+                    {naira(card.quote.priceKobo)}/{card.quote.unit === "KG" ? "kg" : card.quote.unit.toLowerCase()}
+                  </p>
+                  <p className="text-sm text-muted">
+                    {card.changePct === null
+                      ? `as of ${fmtDay(card.quote.date)}`
+                      : `${card.changePct > 0 ? "↑" : card.changePct < 0 ? "↓" : "→"} ${
+                          card.changePct > 0 ? "+" : ""
+                        }${card.changePct}% vs yesterday · as of ${fmtDay(card.quote.date)}`}
+                  </p>
+                </div>
+              ) : null,
+            )}
+            {cards.every((card) => card === null) ? (
+              <p className="text-muted">Prices are unavailable right now.</p>
+            ) : null}
+          </div>
+        );
+        void today;
+      } catch {
+        fishPrices = <p className="text-muted">Prices are unavailable right now.</p>;
+      }
 
+      // --- Weather (server-only, cached 30 min) ---------------------------
+      let weather: WeatherResult;
+      try {
+        weather = await getWeather({ farmId: farm.id, lat: farm.lat, lon: farm.lon });
+      } catch {
+        weather = { ok: false, error: "Weather is unavailable right now. Try again in a few minutes." };
+      }
+      const weatherBadge: BadgeState = weather.ok
+        ? weather.live
+          ? { kind: "live", ageMinutes: (Date.now() - Date.parse(weather.fetchedAt)) / 60_000 }
+          : { kind: "saved", ageMinutes: (Date.now() - Date.parse(weather.fetchedAt)) / 60_000 }
+        : { kind: "saved", ageMinutes: 0 };
+      const weatherAlert = weather.ok ? pondWeatherAlert(weather.daily) : null;
+
+      // --- Ponds table ----------------------------------------------------
       const checks = farm.ponds.map((p) => p.checks[0]).filter(Boolean);
       const totalStock = checks.reduce((sum, c) => sum + c.stockValueKobo, 0);
+      const feedPrice = farm.feedPrices[0];
 
       content = (
         <div className="space-y-6">
@@ -63,22 +151,72 @@ export default async function StepOneCheck() {
             </p>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {[Crop.TILAPIA, Crop.CATFISH].map((crop) => {
-              const tick = latestPrice(crop);
-              return (
-                <div key={crop} className="rounded-card border border-border bg-surface p-4 shadow-card">
-                  <p className="text-sm font-medium text-muted">{crop}</p>
-                  <p className="text-2xl font-bold tabular-nums">
-                    {tick ? `${naira(tick.priceKobo)}/kg` : "No price yet"}
-                  </p>
-                  <p className="text-sm text-info">◼ Simulated</p>
-                </div>
-              );
-            })}
-          </div>
+          <section aria-label="Market prices" className="space-y-2">
+            <h3 className="font-semibold">Market prices</h3>
+            {fishPrices}
+          </section>
 
-          <div className="overflow-hidden rounded-card border border-border bg-surface shadow-card">
+          <section aria-label="Weather">
+            <div className="rounded-card border border-border bg-surface p-4 shadow-card">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-semibold">Weather</h3>
+                  <p className="text-sm text-muted">
+                    {farm.lat}, {farm.lon}
+                    {weather.ok ? (
+                      <>
+                        {" · "}
+                        {weather.source === "openweathermap" ? "OpenWeatherMap" : "Open-Meteo"}
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+                <DataSourceBadge state={weatherBadge} />
+              </div>
+
+              {weather.ok ? (
+                <>
+                  <p className="mt-3 text-2xl font-bold tabular-nums">
+                    {Math.round(weather.current.tempC)}°C{" "}
+                    <span className="text-base font-medium text-muted">{weather.current.text}</span>
+                  </p>
+                  <p className="text-sm text-muted">
+                    Humidity {Math.round(weather.current.humidity)}% · Wind{" "}
+                    {Math.round(weather.current.windKmh * 10) / 10} km/h
+                  </p>
+                  <ul className="mt-3 grid grid-cols-5 gap-2 text-center text-sm">
+                    {weather.daily.map((day) => (
+                      <li key={day.date} className="rounded-input border border-border p-2">
+                        <p className="font-medium">{fmtWeekday(day.date)}</p>
+                        <p className="tabular-nums">
+                          {Math.round(day.maxC)}° / {Math.round(day.minC)}°
+                        </p>
+                        <p className="text-muted tabular-nums">{day.rainMm} mm</p>
+                      </li>
+                    ))}
+                  </ul>
+                  {weatherAlert ? (
+                    <p className="mt-3 rounded-input border border-warning bg-warning-bg p-2 text-sm font-medium text-warning">
+                      <span aria-hidden="true">!</span> {weatherAlert}
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <div className="mt-3 rounded-input border border-danger bg-danger-bg p-3">
+                  <p className="font-medium text-danger">Weather unavailable</p>
+                  <p className="text-sm text-muted">{weather.error}</p>
+                  <a
+                    href="/"
+                    className="mt-2 inline-flex h-12 items-center rounded-input bg-accent px-4 font-medium text-white"
+                  >
+                    Retry
+                  </a>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section aria-label="Ponds" className="overflow-hidden rounded-card border border-border bg-surface shadow-card">
             <table className="w-full text-left">
               <caption className="sr-only">Seeded ponds, one per check status</caption>
               <thead className="border-b border-border text-sm text-muted">
@@ -122,12 +260,12 @@ export default async function StepOneCheck() {
                 })}
               </tbody>
             </table>
-          </div>
+          </section>
 
           <p className="text-sm text-muted">
             {farm.ponds.length} ponds · {checks.length} saved checks · total stock value{" "}
-            <span className="font-medium text-text">{naira(totalStock)}</span>. Every status appears
-            once, so the demo can show every state. FCR logic, weather and screens arrive in steps 2–8.
+            <span className="font-medium text-text">{naira(totalStock)}</span>. Prices come from the
+            market feed, weather from Open-Meteo (no key) or OpenWeatherMap if configured.
           </p>
         </div>
       );
@@ -148,10 +286,11 @@ export default async function StepOneCheck() {
   return (
     <main className="mx-auto max-w-4xl px-4 py-10">
       <header className="mb-8">
-        <p className="text-sm font-medium text-accent">Step 1 check</p>
+        <p className="text-sm font-medium text-accent">Step 2 check</p>
         <h1 className="text-3xl font-bold">PondScale</h1>
         <p className="mt-1 text-muted">
-          Is my fish feed right? Schema, migration and seed are in place. This page is temporary.
+          Is my fish feed right? Schema, seed, market feed and weather are in place. This page is
+          temporary.
         </p>
       </header>
       {content}
