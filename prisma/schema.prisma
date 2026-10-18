@@ -1,0 +1,182 @@
+// PondScale schema — shared "Agro base" models (docs/00-global.md §3)
+// MINUS InventoryItem (PondScale has its own stock model — the fish in the
+// ponds — see docs/02-pondscale.md) PLUS Pond, FeedPrice and Check.
+//
+// Conventions:
+// - Money is integer kobo (₦1 = 100 kobo). Never floats.
+// - Calendar days use @db.Date; timestamps use timestamptz.
+// - Fish weights are whole grams; feed is kilograms as a Float, because a
+//   7-day check can use a few kg of feed and FCR needs the precision.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// The market catalog crops (docs/00-global.md §3).
+enum Crop {
+  MAIZE
+  CASSAVA
+  YAM
+  RICE_PADDY
+  TOMATO
+  TILAPIA
+  CATFISH
+  EGGS_TRAY
+  PALM_OIL
+}
+
+/// Price unit for a crop. Eggs are priced per tray of 30, palm oil per litre.
+enum Unit {
+  KG
+  TRAY
+  LITRE
+}
+
+/// Where a price or weather reading came from. Shown as a badge in the UI.
+enum PriceSource {
+  SIMULATED
+  LIVE
+}
+
+/// Fish a pond holds. Each species has its own fcrMax / adgMin (docs/02).
+enum Species {
+  TILAPIA
+  CATFISH
+}
+
+/// The five check outcomes, in the order fcr.ts decides them (docs/02-pondscale.md):
+/// NO_GROWTH → CHECK_NUMBERS → TOO_MUCH_FEED → SLOW_GROWTH → GOOD.
+enum CheckStatus {
+  NO_GROWTH
+  CHECK_NUMBERS
+  TOO_MUCH_FEED
+  SLOW_GROWTH
+  GOOD
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  passHash  String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  farms Farm[]
+
+  @@map("users")
+}
+
+model Farm {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  lat       Float
+  lon       Float
+  currency  String   @default("NGN")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ponds      Pond[]
+  feedPrices FeedPrice[]
+  weather    WeatherSnapshot[]
+
+  @@index([userId])
+  @@map("farms")
+}
+
+/// One generated (or fetched) price for one crop on one calendar day.
+/// unique(crop, date) makes the generator safe to re-run for the same day.
+/// PondScale uses TILAPIA and CATFISH from this shared feed for stock value.
+model PriceTick {
+  id        String      @id @default(cuid())
+  crop      Crop
+  date      DateTime    @db.Date
+  priceKobo Int
+  unit      Unit
+  source    PriceSource @default(SIMULATED)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@unique([crop, date])
+  @@map("price_ticks")
+}
+
+/// Cached weather response, so a failed API call can still show "Saved data".
+model WeatherSnapshot {
+  id        String   @id @default(cuid())
+  farmId    String
+  fetchedAt DateTime @default(now()) @db.Timestamptz(3)
+  source    String
+  payload   Json
+
+  farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@index([farmId, fetchedAt])
+  @@map("weather_snapshots")
+}
+
+/// A pond on the farm. fishCount and weights are NOT stored here — they are
+/// measured at each check, so the pond only carries name + species.
+model Pond {
+  id        String   @id @default(cuid())
+  farmId    String
+  name      String
+  species   Species
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  farm   Farm    @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  checks Check[]
+
+  @@unique([farmId, name])
+  @@map("ponds")
+}
+
+/// What a kg of feed costs on this farm, in kobo (₦1,200/kg = 120000).
+model FeedPrice {
+  id        String   @id @default(cuid())
+  farmId    String
+  priceKobo Int
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@unique([farmId])
+  @@map("feed_prices")
+}
+
+/// One growth check for one pond: what you put in (feed, days) and what you
+/// got out (weight gain), plus the money side computed from those.
+/// Range rules (fishCount ≥ 1, days ≥ 1, 0 < startG ≤ 5000, 0 < currentG ≤
+/// 5000, feedKg > 0) are validated by Zod in step 4 and asserted by the fcr.ts
+/// tests in step 3.
+model Check {
+  id                    String      @id @default(cuid())
+  pondId                String
+  date                  DateTime    @db.Date
+  fishCount             Int
+  days                  Int
+  startG                Int
+  currentG              Int
+  feedKg                Float
+  status                CheckStatus
+  /// FCR = feedKg / gainKg, 2 decimals. NULL when status is NO_GROWTH —
+  /// currentG ≤ startG means there is no gain to divide by.
+  fcr                   Float?
+  /// ADG = (currentG − startG) / days, g per fish per day. May be negative.
+  adgGPerDay            Float
+  /// FCR × feed price, integer kobo per kg of fish gained. NULL with fcr.
+  feedCostPerKgGainKobo Int?
+  /// fishCount × currentG/1000 × latest market price, integer kobo, fixed at
+  /// the price of `date` so the check keeps its "as of" value.
+  stockValueKobo        Int
+  createdAt             DateTime    @default(now()) @db.Timestamptz(3)
+
+  pond Pond @relation(fields: [pondId], references: [id], onDelete: Cascade)
+
+  @@index([pondId, date])
+  @@map("checks")
+}
