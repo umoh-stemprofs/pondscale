@@ -3,7 +3,12 @@ import Link from "next/link";
 import { FishPriceCards } from "@/components/FishPriceCards";
 import { StatCard } from "@/components/StatCard";
 import { StatusPill } from "@/components/StatusPill";
+import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
 import { WeatherCard } from "@/components/WeatherCard";
+import { ChartCard } from "@/components/charts/ChartCard";
+import { StockValueBar } from "@/components/charts/StockValueBar";
+import { StockValuePie } from "@/components/charts/StockValuePie";
+import { shareTableData, valueTableData } from "@/components/charts/tables";
 import { FishIcon, PlusIcon } from "@/components/icons";
 import { db } from "@/lib/db";
 import { fmtCount, fmtDay, fmtFcr, naira, speciesLabel } from "@/lib/format";
@@ -18,6 +23,16 @@ import { loadFarmWeather } from "@/lib/weather/view";
 // so the database read is wrapped and the weather uses the default
 // coordinates — and the rest of the page keeps working.
 export const dynamic = "force-dynamic";
+
+/// The demo switch only exists when DEMO_MODE=true (docs/02 step 5); it
+/// previews the alert banner and never touches data.
+const DEMO_MODE = process.env.DEMO_MODE === "true";
+
+const STOCK_EMPTY = {
+  sentence: "No saved checks yet — the stock value charts appear after your first check.",
+  buttonLabel: "Check my fish",
+  buttonHref: "/check",
+};
 
 type PondWithCheck = {
   id: string;
@@ -87,6 +102,13 @@ export default async function DashboardPage() {
     null,
   );
 
+  // One slice per pond with a saved check (ponds without one show nothing —
+  // the charts never invent data).
+  const valueRows = ponds.map((pond) => ({
+    name: pond.name,
+    valueKobo: pond.checks[0]?.stockValueKobo ?? 0,
+  }));
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -116,14 +138,7 @@ export default async function DashboardPage() {
         </p>
       ) : null}
 
-      {weatherAlert ? (
-        <p
-          role="status"
-          className="rounded-card border border-warning bg-warning-bg p-3 text-sm font-medium text-warning"
-        >
-          <span aria-hidden="true">!</span> {weatherAlert}
-        </p>
-      ) : null}
+      <WeatherAlertBanner alert={weatherAlert} demoMode={DEMO_MODE} />
 
       <section aria-label="Farm at a glance" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
@@ -151,6 +166,30 @@ export default async function DashboardPage() {
           sub={newest?.fcr != null ? `At FCR ${fmtFcr(newest.fcr)}` : "Needs a check with growth"}
         />
       </section>
+
+      {!dbDown ? (
+        <section aria-label="Stock value charts" className="space-y-3">
+          <h2 className="text-lg font-semibold">Stock value</h2>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <ChartCard
+              title="Stock value by pond"
+              badge={{ kind: "simulated" }}
+              table={valueTableData(valueRows)}
+              empty={STOCK_EMPTY}
+            >
+              <StockValueBar rows={valueRows} />
+            </ChartCard>
+            <ChartCard
+              title="Share of stock value"
+              badge={{ kind: "simulated" }}
+              table={shareTableData(valueRows)}
+              empty={STOCK_EMPTY}
+            >
+              <StockValuePie rows={valueRows} />
+            </ChartCard>
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section aria-label="My ponds" className="space-y-3">

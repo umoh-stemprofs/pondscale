@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { POND_FEED_ALERT, pondWeatherAlert } from "./alerts";
+import { FINE_FEED_TIP, POND_FEED_ALERT, farmTip, pondWeatherAlert } from "./alerts";
 import type { DailyForecast } from "./schemas";
 
 // docs/02-pondscale.md: maxC ≥ 34 or rain ≥ 20 mm tomorrow → feed 10% less
@@ -34,5 +34,18 @@ describe("pondWeatherAlert", () => {
   it("needs a tomorrow entry for the rain rule (heat alone still counts)", () => {
     expect(pondWeatherAlert([day({ rainMm: 50 })])).toBeNull();
     expect(pondWeatherAlert([day({ maxC: 36 })])).toBe(POND_FEED_ALERT);
+  });
+});
+
+describe("farmTip", () => {
+  it("follows the forecast with the feeding advice when it crosses a threshold", () => {
+    expect(farmTip([day({ maxC: 34 }), day(), day(), day(), day()])).toBe(POND_FEED_ALERT);
+    expect(farmTip([day(), day({ rainMm: 20 }), day(), day(), day()])).toBe(POND_FEED_ALERT);
+  });
+
+  it("gives the calm sentence otherwise", () => {
+    expect(farmTip([day({ maxC: 31 }), day({ rainMm: 5 }), day(), day(), day()])).toBe(
+      FINE_FEED_TIP,
+    );
   });
 });

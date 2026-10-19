@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { Suspense } from "react";
 import { CheckHistoryList, type CheckRowData } from "@/components/CheckHistoryList";
+import { ChartCard, ChartSkeleton } from "@/components/charts/ChartCard";
+import { PondTrendCharts } from "@/components/charts/PondTrendCharts";
 import { FishIcon } from "@/components/icons";
 import { listChecksForFarm } from "@/lib/check/service";
 import { db } from "@/lib/db";
@@ -21,10 +24,12 @@ export default async function HistoryPage({
 
   let ponds: { id: string; name: string }[] = [];
   let rows: CheckRowData[] = [];
+  let farmId: string | null = null;
   let dbDown = false;
 
   try {
     const farm = await getOrCreateFarm(userId);
+    farmId = farm.id;
     ponds = await db.pond.findMany({
       where: { farmId: farm.id },
       orderBy: { name: "asc" },
@@ -101,6 +106,28 @@ export default async function HistoryPage({
               );
             })}
           </nav>
+
+          <section aria-label="Trends" className="space-y-3">
+            <h2 className="text-lg font-semibold">Trends</h2>
+            {selectedPondId && farmId ? (
+              // Streams behind the skeleton while the chart rows load.
+              <Suspense fallback={<ChartSkeleton />}>
+                <PondTrendCharts farmId={farmId} pondId={selectedPondId} />
+              </Suspense>
+            ) : (
+              <ChartCard
+                title="FCR over time"
+                table={{ head: [], rows: [] }}
+                empty={{
+                  sentence: "Choose a pond above to see its FCR and growth charts.",
+                  buttonLabel: "Check my fish",
+                  buttonHref: "/check",
+                }}
+              >
+                {null}
+              </ChartCard>
+            )}
+          </section>
 
           {rows.length === 0 ? (
             <div className="rounded-card border border-border bg-surface p-8 text-center shadow-card">

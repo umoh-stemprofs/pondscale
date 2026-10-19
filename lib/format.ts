@@ -60,6 +60,12 @@ export function fmtDay(input: string | Date): string {
   return `${WEEKDAY[utcDate(parts).getUTCDay()]} ${parts.d} ${MONTH[parts.m - 1]}`;
 }
 
+/** "YYYY-MM-DD" or Date → "19 Oct" (compact chart axis labels). */
+export function fmtDayShort(input: string | Date): string {
+  const parts = parseIsoDay(input);
+  return `${parts.d} ${MONTH[parts.m - 1]}`;
+}
+
 /** "YYYY-MM-DD" → "Mon" (weekday column heads). */
 export function fmtWeekday(iso: string): string {
   return WEEKDAY[utcDate(parseIsoDay(iso)).getUTCDay()];

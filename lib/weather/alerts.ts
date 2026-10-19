@@ -15,3 +15,15 @@ export function pondWeatherAlert(daily: readonly DailyForecast[]): string | null
   const wetTomorrow = daily[1] !== undefined && daily[1].rainMm >= HEAVY_RAIN_MM;
   return hotDay || wetTomorrow ? POND_FEED_ALERT : null;
 }
+
+/// The tip for a calm forecast (docs/02-pondscale.md step 5, weather page).
+export const FINE_FEED_TIP = "Weather looks fine for feeding today.";
+
+/**
+ * The farm tip that follows the forecast: the feeding advice whenever a hot
+ * or stormy day is coming, otherwise the calm sentence. Pure — the page
+ * passes the forecast it already has.
+ */
+export function farmTip(daily: readonly DailyForecast[]): string {
+  return pondWeatherAlert(daily) ?? FINE_FEED_TIP;
+}

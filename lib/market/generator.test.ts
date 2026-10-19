@@ -42,6 +42,12 @@ describe("market generator", () => {
   it("prints the 14-day trend for every crop, with one rising and one falling today", () => {
     let rising = 0;
     let falling = 0;
+    // Direction comes from the UNROUNDED prices: changePctOn rounds to one
+    // decimal, and a test pinned to today must not flip when a real but tiny
+    // move happens to display as "0.0%". The catfish/tilapia mirror
+    // (catalog.ts) makes the fish deltas exact opposites on every date, so
+    // this passes on any day — no salt retuning when the calendar moves.
+    const yesterday = isoDaysAgo(1);
 
     for (const cfg of CATALOG) {
       const points = priceHistory(cfg, today, 14);
@@ -49,8 +55,9 @@ describe("market generator", () => {
       expect(points[13].date).toBe(today);
 
       const pct = changePctOn(cfg, today);
-      if (pct > 0) rising++;
-      if (pct < 0) falling++;
+      const delta = priceOnDate(cfg, today) - priceOnDate(cfg, yesterday);
+      if (delta > 0) rising++;
+      if (delta < 0) falling++;
 
       const first = points[0].priceKobo;
       const last = points[13].priceKobo;

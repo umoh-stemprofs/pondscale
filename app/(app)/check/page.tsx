@@ -4,8 +4,13 @@ import { NumberStepper } from "@/components/NumberStepper";
 import { SaveCheckButton } from "@/components/SaveCheckButton";
 import { StatCard } from "@/components/StatCard";
 import { StatusPillLarge } from "@/components/StatusPill";
+import { WeatherAlertBanner } from "@/components/WeatherAlertBanner";
+import { ChartCard } from "@/components/charts/ChartCard";
+import { FcrCompareBar } from "@/components/charts/FcrCompareBar";
+import { compareTableData } from "@/components/charts/tables";
 import { FishIcon } from "@/components/icons";
 import { checkNumbersSchema, type CheckNumbers } from "@/lib/validation";
+import { SPECIES_LIMITS } from "@/lib/config";
 import { db } from "@/lib/db";
 import { todayIso } from "@/lib/dates";
 import { evaluateWithFarmPrices } from "@/lib/check/evaluate";
@@ -24,6 +29,9 @@ import { loadFarmWeather } from "@/lib/weather/view";
 // list is scoped by this user's farm, so a foreign pond id simply falls back
 // to the chooser (docs/00-global.md §3).
 export const dynamic = "force-dynamic";
+
+/// DEMO_MODE only adds the preview switch; it never changes data.
+const DEMO_MODE = process.env.DEMO_MODE === "true";
 
 interface WizardParams {
   pond?: string;
@@ -396,11 +404,9 @@ export default async function CheckWizardPage({
             </Link>
           </p>
         ) : null}
+        <WeatherAlertBanner alert={weatherAlert} demoMode={DEMO_MODE} />
         {weatherAlert ? (
-          <p className="rounded-input border border-warning bg-warning-bg p-3 text-sm font-medium text-warning">
-            <span aria-hidden="true">!</span> {weatherAlert}{" "}
-            <span className="font-normal">(This advice does not change your result.)</span>
-          </p>
+          <p className="text-sm text-muted">This advice does not change your result.</p>
         ) : null}
       </div>
 
@@ -432,6 +438,21 @@ export default async function CheckWizardPage({
           sub={`${fmtCount(numbers.fishCount)} fish · fish price ${naira(fishPriceKobo)}/kg · as of ${fmtDay(todayIso())}`}
         />
       </section>
+
+      <ChartCard
+        title="This check against the limit"
+        badge={{ kind: "simulated" }}
+        table={compareTableData(outcome.fcr, SPECIES_LIMITS[pond.species].fcrMax)}
+        empty={{
+          sentence: "No growth, so there is no FCR to compare.",
+          buttonLabel: "Check again",
+          buttonHref: againHref,
+        }}
+      >
+        {outcome.fcr === null ? null : (
+          <FcrCompareBar fcr={outcome.fcr} fcrMax={SPECIES_LIMITS[pond.species].fcrMax} />
+        )}
+      </ChartCard>
 
       {outcome.marginMessage ? (
         <p role="alert" className="rounded-card border border-danger bg-danger-bg p-3 font-medium text-danger">

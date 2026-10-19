@@ -200,12 +200,17 @@ async function main() {
     });
   }
 
-  // Make a re-run converge on exactly this demo data.
+  // Make a re-run converge on exactly this demo data: one pond per status,
+  // one check per pond (idempotent). Anything else on THIS farm goes — for
+  // example the checks saved while click-testing the step-4B wizard. Ponds
+  // and checks are scoped to farm_demo, so no other account's data can be
+  // touched; deleting a pond cascades to its checks (schema FK).
+  const seedCheckIds = PONDS.map((pond) => pond.check.id);
   await db.pond.deleteMany({
     where: { farmId: farm.id, id: { notIn: PONDS.map((p) => p.id) } },
   });
   await db.check.deleteMany({
-    where: { pondId: { in: PONDS.map((p) => p.id) }, id: { notIn: PONDS.map((p) => p.check.id) } },
+    where: { pond: { farmId: farm.id }, id: { notIn: seedCheckIds } },
   });
 
   const [feedPrice, ponds] = await Promise.all([
