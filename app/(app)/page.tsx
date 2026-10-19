@@ -89,12 +89,21 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <p className="text-muted">
-          {farm ? farm.name : "Your farm"}
-          {farm ? ` · ${farm.lat}, ${farm.lon}` : ""}
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold">Dashboard</h1>
+          <p className="text-muted">
+            {farm ? farm.name : "Your farm"}
+            {farm ? ` · ${farm.lat}, ${farm.lon}` : ""}
+          </p>
+        </div>
+        <Link
+          href="/check"
+          className="flex h-12 items-center gap-2 rounded-input bg-accent px-4 font-medium text-white"
+        >
+          <FishIcon className="h-5 w-5" />
+          Check my fish
+        </Link>
       </header>
 
       {dbDown ? (
@@ -147,13 +156,21 @@ export default async function DashboardPage() {
         <section aria-label="My ponds" className="space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">My ponds</h2>
-            <Link
-              href="/ponds"
-              className="flex h-11 items-center gap-2 rounded-input bg-accent px-3 font-medium text-white"
-            >
-              <PlusIcon className="h-4 w-4" />
-              Add pond
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/check/history"
+                className="flex h-11 items-center rounded-input border border-border px-3 font-medium text-text"
+              >
+                History
+              </Link>
+              <Link
+                href="/ponds"
+                className="flex h-11 items-center gap-2 rounded-input bg-accent px-3 font-medium text-white"
+              >
+                <PlusIcon className="h-4 w-4" />
+                Add pond
+              </Link>
+            </div>
           </div>
 
           {ponds.length === 0 ? (
@@ -189,6 +206,12 @@ export default async function DashboardPage() {
                         "No check yet — add one to see FCR and stock value."
                       )}
                     </p>
+                    <Link
+                      href={`/check?pond=${pond.id}&step=1`}
+                      className="mt-3 inline-flex h-11 items-center rounded-input border border-border px-3 font-medium text-text"
+                    >
+                      Check this pond
+                    </Link>
                   </li>
                 );
               })}

@@ -13,3 +13,16 @@ export function StatusPill({ status }: { status: CheckStatus }) {
     </span>
   );
 }
+
+/// Large variant for the result screens (docs/02-pondscale.md step 4B): the
+/// same colour + icon + word rule, sized to be the headline of the page.
+export function StatusPillLarge({ status }: { status: CheckStatus }) {
+  const meta = STATUS_META[status];
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-lg font-semibold ${meta.cls}`}
+    >
+      <span aria-hidden="true">{meta.icon}</span> {meta.label}
+    </span>
+  );
+}

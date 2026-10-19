@@ -173,6 +173,10 @@ model Check {
   /// fishCount × currentG/1000 × latest market price, integer kobo, fixed at
   /// the price of `date` so the check keeps its "as of" value.
   stockValueKobo        Int
+  /// The market price per kg this check was valued at (integer kobo), kept so
+  /// an old check can still show its margin honestly. NULL for rows saved
+  /// before step 4B or when the price feed was unavailable.
+  fishPriceKobo         Int?
   createdAt             DateTime    @default(now()) @db.Timestamptz(3)
 
   pond Pond @relation(fields: [pondId], references: [id], onDelete: Cascade)

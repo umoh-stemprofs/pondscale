@@ -63,6 +63,49 @@ export const settingsSchema = z.object({
 
 export type SettingsInput = z.infer<typeof settingsSchema>;
 
+/// The five numbers of the check wizard (docs/02-pondscale.md step 4B).
+/// Weights are whole grams (the Check table stores Int grams); feed is
+/// kilograms and may be fractional. Every message is one sentence saying
+/// what to fix, shown next to the field (design.md §6).
+export const checkNumbersSchema = z.object({
+  fishCount: z.coerce
+    .number({ invalid_type_error: "Enter the number of fish in the pond." })
+    .int("Enter the fish count as a whole number.")
+    .min(1, "Enter at least 1 fish.")
+    .max(100_000_000, "That fish count looks wrong — check the number."),
+  days: z.coerce
+    .number({ invalid_type_error: "Enter the number of days." })
+    .int("Enter the days as a whole number.")
+    .min(1, "Enter at least 1 day.")
+    .max(3650, "Keep the check window under 10 years (3650 days)."),
+  startG: z.coerce
+    .number({ invalid_type_error: "Enter the weight at the start." })
+    .int("Enter the start weight as a whole number of grams.")
+    .min(1, "Enter a start weight of at least 1 g.")
+    .max(5000, "Keep the start weight at or below 5000 g."),
+  currentG: z.coerce
+    .number({ invalid_type_error: "Enter the weight now." })
+    .int("Enter the weight now as a whole number of grams.")
+    .min(1, "Enter a weight now of at least 1 g.")
+    .max(5000, "Keep the weight now at or below 5000 g."),
+  feedKg: z.coerce
+    .number({ invalid_type_error: "Enter the feed used." })
+    .positive("Enter the feed used as a number above 0 kg.")
+    .max(1_000_000, "Keep the feed used under 1,000,000 kg."),
+});
+
+export type CheckNumbers = z.infer<typeof checkNumbersSchema>;
+
+/** One sentence per field, for the wizard to render next to the input. */
+export function fieldErrors(error: z.ZodError): Partial<Record<keyof CheckNumbers, string>> {
+  const out: Partial<Record<keyof CheckNumbers, string>> = {};
+  for (const issue of error.issues) {
+    const key = issue.path[0] as keyof CheckNumbers;
+    if (!(key in out)) out[key] = issue.message;
+  }
+  return out;
+}
+
 /** Naira (may be fractional) → integer kobo (₦1 = 100 kobo). */
 export function nairaToKobo(naira: number): number {
   return Math.round(naira * 100);

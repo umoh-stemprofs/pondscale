@@ -9,6 +9,10 @@ import { catalogEntry, MARKET_START_DATE, type CropConfig } from "./catalog";
 //   x[k] = x[k-1] - 0.03 * x[k-1] + e[k],  e[k] = (rand - 0.5) * 2 * 0.025
 //   rand = mulberry32(hash(crop + salt + k))(),  x clamped to ±0.35
 //   price = round(basePriceKobo * exp(x[k]))
+//
+// A crop with `mirrorOf` set uses the MIRRORED noise of that crop (e[k] =
+// −e[k] of the other), so with x[0] = 0 its x series is the exact negative:
+// tilapia and catfish always move in opposite directions (catalog.ts).
 
 const DECAY = 0.03;
 const NOISE_MAX = 0.025;
@@ -42,8 +46,10 @@ const clampX = (x: number) => Math.min(X_LIMIT, Math.max(-X_LIMIT, x));
 export function xSeries(cfg: CropConfig, dayIndex: number): number[] {
   const xs = [0];
   for (let k = 1; k <= dayIndex; k++) {
-    const rand = mulberry32(hashString(cfg.crop + cfg.salt + k))();
-    const e = (rand - 0.5) * 2 * NOISE_MAX;
+    // A mirrored crop draws the other crop's noise and flips its sign.
+    const noiseCfg = cfg.mirrorOf ? catalogEntry(cfg.mirrorOf) : cfg;
+    const rand = mulberry32(hashString(noiseCfg.crop + noiseCfg.salt + k))();
+    const e = (rand - 0.5) * 2 * NOISE_MAX * (cfg.mirrorOf ? -1 : 1);
     xs.push(clampX(xs[k - 1] - DECAY * xs[k - 1] + e));
   }
   return xs;
