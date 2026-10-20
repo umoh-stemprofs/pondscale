@@ -51,6 +51,10 @@ type PondWithCheck = {
 export default async function DashboardPage() {
   const userId = await requireUser();
 
+  // Speed: the market feed does not depend on the database, so it starts
+  // loading right away and only joins the rest at the end.
+  const priceCardsPromise = loadPriceCards();
+
   let farm: Farm | null = null;
   let ponds: PondWithCheck[] = [];
   let dbDown = false;
@@ -81,14 +85,13 @@ export default async function DashboardPage() {
     dbDown = true;
   }
 
-  // Weather first, with the default location whenever the farm is unknown.
-  const weather = await loadFarmWeather(
-    farm ? { id: farm.id, lat: farm.lat, lon: farm.lon } : null,
-  );
+  // Speed: weather (needs the farm's coordinates) and the already-running
+  // price fetch answer together instead of one after the other.
+  const [weather, priceCards] = await Promise.all([
+    loadFarmWeather(farm ? { id: farm.id, lat: farm.lat, lon: farm.lon } : null),
+    priceCardsPromise,
+  ]);
   const weatherAlert = weather.result.ok ? pondWeatherAlert(weather.result.daily) : null;
-
-  // Fish prices: shared with the market page and the value cards.
-  const priceCards = await loadPriceCards();
 
   const latest = ponds
     .map((pond) => pond.checks[0])

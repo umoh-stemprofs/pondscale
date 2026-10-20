@@ -94,8 +94,12 @@ export async function saveCheckForFarm(
   const pond = await pondForFarm(store, args.pondId, args.farmId);
   if (!pond) return { ok: false, error: POND_OWNERSHIP_ERROR };
 
-  const feedRow = await store.feedPrice.findUnique({ where: { farmId: args.farmId } });
-  const fishPriceKobo = await args.fishPriceFor(pond.species);
+  // Speed: the feed price row and the market call are independent once the
+  // pond is known, so they are fetched together.
+  const [feedRow, fishPriceKobo] = await Promise.all([
+    store.feedPrice.findUnique({ where: { farmId: args.farmId } }),
+    args.fishPriceFor(pond.species),
+  ]);
   if (!fishPriceKobo || fishPriceKobo <= 0) return { ok: false, error: FISH_PRICE_ERROR };
 
   const numbers = parsed.data;

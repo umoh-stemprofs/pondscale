@@ -16,6 +16,8 @@ export default async function SettingsPage() {
 
   try {
     farm = await getOrCreateFarm(userId);
+    // The feed price row depends only on the farm id, so it runs alongside
+    // nothing else here — but it is one round trip, not two serial ones.
     const price = await db.feedPrice.findUnique({ where: { farmId: farm.id } });
     feedPriceKobo = price?.priceKobo ?? null;
   } catch {

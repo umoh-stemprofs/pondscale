@@ -8,7 +8,8 @@ import { PriceHistoryChart } from "@/components/charts/PriceHistoryChart";
 import { priceTableData, type PricePoint } from "@/components/charts/tables";
 import { marketDaysSchema } from "@/lib/market/query";
 import { getMarketProvider } from "@/lib/market/provider";
-import { loadPriceCards } from "@/lib/market/view";
+import { CROPS } from "@/lib/market/catalog";
+import { FISH_CROPS, loadPriceCards } from "@/lib/market/view";
 import { requireUser } from "@/lib/guards";
 
 // Market screen (docs/02-pondscale.md step 5): today's tilapia and catfish
@@ -82,20 +83,39 @@ export default async function MarketPage({
 
   const parsedDays = marketDaysSchema.safeParse({ days: searchParams.days });
   const days = parsedDays.success ? parsedDays.data.days : 30;
-  const cards = await loadPriceCards();
+
+  // Speed: ONE call fetches every crop in the catalog (today + yesterday in
+  // parallel inside loadPriceCards), then the fish cards and the wider
+  // market grid are split from the same quotes.
+  const allCards = await loadPriceCards([...CROPS]);
+  const fishCards = FISH_CROPS.map((crop) => allCards.find((card) => card.crop === crop)).filter(
+    (card): card is NonNullable<typeof card> => card !== undefined,
+  );
+  const otherCards = allCards.filter(
+    (card) => !FISH_CROPS.some((crop) => crop === card.crop),
+  );
 
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-2xl font-semibold">Fish prices</h1>
+        <h1 className="text-2xl font-semibold">Market prices</h1>
         <p className="text-muted">
-          Today&apos;s price per kilogram. The badge on each card says where the price came from.
+          Today&apos;s fish prices for your ponds, plus other crops from the same market feed. The
+          badge on each card says where the price came from.
         </p>
       </header>
 
-      <div className="max-w-2xl">
-        <FishPriceCards cards={cards} />
-      </div>
+      <section aria-label="Fish prices" className="max-w-2xl space-y-3">
+        <h2 className="text-lg font-semibold">Fish prices</h2>
+        <FishPriceCards cards={fishCards} />
+      </section>
+
+      {otherCards.length > 0 ? (
+        <section aria-label="Other crops" className="space-y-3">
+          <h2 className="text-lg font-semibold">More from the market</h2>
+          <FishPriceCards cards={otherCards} variant="compact" />
+        </section>
+      ) : null}
 
       <section aria-label="Price history" className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">

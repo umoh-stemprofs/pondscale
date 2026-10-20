@@ -42,6 +42,11 @@ export function wmoText(code: number): string {
   return WMO_TEXT[code] ?? "Unknown conditions";
 }
 
+/// Base URL for the forecast endpoint. WEATHER_API_URL exists so the
+/// failure path can be tested against any unreachable host (and so a proxy
+/// can be used); the default is the real Open-Meteo API.
+const BASE_URL = () => process.env.WEATHER_API_URL?.trim() || "https://api.open-meteo.com";
+
 export function openMeteoUrl(lat: number, lon: number, tz: string = APP_TZ): string {
   const params = new URLSearchParams({
     latitude: String(lat),
@@ -51,7 +56,7 @@ export function openMeteoUrl(lat: number, lon: number, tz: string = APP_TZ): str
     timezone: tz,
     forecast_days: "5",
   });
-  return `https://api.open-meteo.com/v1/forecast?${params.toString()}`;
+  return `${BASE_URL()}/v1/forecast?${params.toString()}`;
 }
 
 export async function fetchOpenMeteo(

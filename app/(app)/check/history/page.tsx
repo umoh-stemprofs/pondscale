@@ -30,24 +30,32 @@ export default async function HistoryPage({
   try {
     const farm = await getOrCreateFarm(userId);
     farmId = farm.id;
-    ponds = await db.pond.findMany({
-      where: { farmId: farm.id },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    });
+    // Speed: the pond list and the check list are independent reads on the
+    // same farm, so they run together. The pond filter is applied to the
+    // already-scoped rows in memory — every check comes from WHERE farmId.
+    const [pondRows, checks] = await Promise.all([
+      db.pond.findMany({
+        where: { farmId: farm.id },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true },
+      }),
+      listChecksForFarm(db, { farmId: farm.id }),
+    ]);
+    ponds = pondRows;
     // Only this farmer's ponds can match the filter; anything else is ignored.
     const pondId = ponds.find((pond) => pond.id === searchParams.pond)?.id;
     const nameOf = new Map(ponds.map((pond) => [pond.id, pond.name]));
-    const checks = await listChecksForFarm(db, { farmId: farm.id, pondId });
-    rows = checks.map((check) => ({
-      id: check.id,
-      pondId: check.pondId,
-      pondName: nameOf.get(check.pondId) ?? "Pond",
-      date: check.date.toISOString().slice(0, 10),
-      status: check.status,
-      fcr: check.fcr,
-      adgGPerDay: check.adgGPerDay,
-    }));
+    rows = checks
+      .filter((check) => pondId === undefined || check.pondId === pondId)
+      .map((check) => ({
+        id: check.id,
+        pondId: check.pondId,
+        pondName: nameOf.get(check.pondId) ?? "Pond",
+        date: check.date.toISOString().slice(0, 10),
+        status: check.status,
+        fcr: check.fcr,
+        adgGPerDay: check.adgGPerDay,
+      }));
   } catch {
     dbDown = true;
   }

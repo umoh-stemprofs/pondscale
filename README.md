@@ -3,57 +3,86 @@
 Fish-farm dashboard for the "Agro-Analytics" track. Per pond it answers one
 question: **is the feeding right**, using feed conversion ratio (FCR) and
 growth over a check window — plus the money side: feed cost per kg of fish
-grown, and the market value of the fish still in the pond.
+grown, and the market value of the fish still in the ponds.
 
 Decision-support tool. You decide.
 
-Status: **step 4A of 8 — login, signup, dashboard shell, ponds, farm settings.**
-The new-check wizard (4B) and the result/history screens are next.
+Status: **complete — all 8 steps.** Login, ponds, the 3-step check wizard,
+result with money, history with FCR/growth charts, dashboard EMV charts,
+market page (nine crops), live weather with alerts, demo mode, docs and
+hosting readiness ([docs/DEPLOY.md](docs/DEPLOY.md)).
 
 ## Stack
 
-Next.js 14 (App Router, TypeScript) · Tailwind · Prisma + Postgres · Recharts ·
-Zod · iron-session · bcryptjs · date-fns-tz · Vitest. Accent `#0B63CE`.
-
-Money is stored as integer kobo (₦1 = 100 kobo) and formatted at the edge.
-All dates and times use `APP_TZ` (default `Africa/Lagos`).
+Next.js 14 (App Router, TypeScript) · Tailwind · Prisma + Postgres (Neon) ·
+Recharts · Zod · iron-session · bcryptjs · date-fns-tz · Vitest. Accent
+`#0B63CE`. Money is integer kobo (₦1 = 100 kobo), formatted at the edge.
+All dates use `APP_TZ` (default `Africa/Lagos`).
 
 ## Setup
 
 ```bash
-npm install
-cp .env.example .env      # then set DATABASE_URL and SESSION_SECRET
-npm run db:migrate        # create the tables
-npm run db:seed           # one pond per check status, feed price, fish prices
-npm run dev               # http://localhost:3000
-npm test                  # Vitest: generator, provider fallback, weather, alerts
+npm install                 # postinstall runs `prisma generate`
+cp .env.example .env        # then set DATABASE_URL and SESSION_SECRET
+npm run db:migrate          # create the tables
+npm run db:seed             # demo farmer, one pond per status, feed price
+npm run dev                 # http://localhost:3000
 ```
 
-`npm run typecheck` runs TypeScript. `npm run db:studio` opens Prisma Studio.
+Use another port with `npm run dev -- -p 3100` (any port works; nothing is
+hardcoded). Tests: `npm test`. Checks: `npm run typecheck`, `npm run build`.
 
-Environment variables (see `.env.example`): `DATABASE_URL`, `APP_TZ`,
-`SESSION_SECRET` (required — a random 32-byte value; the app refuses to start
-without it), `DEMO_MODE` (`true` shows the "Try demo account" button), and the
-optional `OWM_API_KEY` / `MARKET_API_URL`. Never commit `.env`.
+## Commands
 
-`npm run db:seed` is idempotent: re-running it converges on the same demo rows.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Dev server on http://localhost:3000 (`-- -p 3100` for another port) |
+| `npm run build` / `npm start` | Production build / serve |
+| `npm test` | Vitest: FCR logic, chart series, market generator + fallback, weather fallback, alerts, auth, ownership |
+| `npm run typecheck` | TypeScript, no emit |
+| `npm run db:migrate` | Create tables (prisma migrate dev) |
+| `npm run db:seed` | Idempotent demo data: one pond per check status |
+| `npm run db:deploy` | Apply committed migrations (production / Neon) |
+| `npm run db:reset` | Drop, migrate, re-seed (local only) |
+| `npm run db:studio` | Prisma Studio |
 
-### Postgres
+## Environment variables (names only; values live in `.env`, never committed)
 
-Any Postgres works locally; Neon free tier in deployment (`?sslmode=require`).
-The plan is Postgres in dev as well as production, so no SQLite-only behaviour
-sneaks in.
+| Name | Required | Purpose |
+|---|---|---|
+| `DATABASE_URL` | yes | Postgres connection string (Neon in deployment) |
+| `SESSION_SECRET` | yes | iron-session secret; the app refuses to start without it |
+| `APP_TZ` | no | Default `Africa/Lagos` |
+| `DEMO_MODE` | no | `true` shows "Try demo account" and the dashboard's demo alert switch |
+| `OWM_API_KEY` | no | OpenWeatherMap instead of the default Open-Meteo (no key) |
+| `MARKET_API_URL` | no | A real market API instead of the simulated feed (auto-fallback) |
 
-To reset everything: `npm run db:reset` drops, re-migrates and re-seeds.
+`.env.example` lists them all. `.env` is git-ignored. After build, the
+client bundle is grepped for every key name — none are present.
 
 ## Demo account
 
 - Email: `demo@pondscale.test`
 - Password: `demo1234`
 
-Demo credentials live here, never in the app code.
+Credentials live here and in `prisma/seed.ts`, never in the app code. The
+hosted site should use a **stronger** demo password — see
+[docs/DEPLOY.md](docs/DEPLOY.md) §4.
 
-## Data model (step 1)
+## What is live and what is simulated
+
+- **Weather: live.** Open-Meteo (no key), called server-side with a 5 s
+  timeout and one retry, cached 30 minutes in `WeatherSnapshot`; failures
+  show the last snapshot with a "Saved data" badge, or an error card with
+  Retry.
+- **Market prices: simulated** by default — a deterministic nine-crop feed
+  (`GET /api/market/prices`, `/api/market/history`). Set `MARKET_API_URL`
+  and the Live provider takes over, falling back to the simulated feed on
+  any failure. Catfish mirrors tilapia in the simulated feed so the demo
+  always shows one rising and one falling price.
+- Every data card carries the Live / Saved data / Simulated badge.
+
+## Data model
 
 | Model | Purpose |
 |---|---|
@@ -61,27 +90,19 @@ Demo credentials live here, never in the app code.
 | `Farm` | Name, coordinates, currency; default Port Harcourt 4.8156, 7.0498 |
 | `Pond` | Name + species (`TILAPIA` / `CATFISH`), unique per farm |
 | `FeedPrice` | Feed cost per kg for the farm, in kobo (one row per farm) |
-| `Check` | One growth check: fish count, days, start/current weight, feed used, status, FCR, ADG, feed cost per kg gained, stock value |
-| `PriceTick` | Daily price per crop, unique per crop+date (shared market feed; step 2 fills it) |
-| `WeatherSnapshot` | Cached weather, so an API failure still shows saved data (step 3) |
+| `Check` | One growth check: fish count, days, weights, feed used, status, FCR, ADG, feed cost per kg gained, stock value |
+| `PriceTick` | Daily price per crop, unique per crop+date (the market feed cache) |
+| `WeatherSnapshot` | Cached weather, so an API failure still shows saved data |
 
-`InventoryItem` from the shared Agro base is intentionally **not** here — the
-ponds are the stock (docs/00-global.md §3).
-
-Enums: `Crop` (nine catalog crops), `Unit`, `PriceSource` (`SIMULATED` /
-`LIVE`), `Species`, `CheckStatus` (`NO_GROWTH`, `CHECK_NUMBERS`,
-`TOO_MUCH_FEED`, `SLOW_GROWTH`, `GOOD` — the order `fcr.ts` decides them).
-
-`Check.fcr` is nullable: a pond whose fish did not grow has no gain to divide
-by, so no FCR is computed (docs/02-pondscale.md rule 1). Range rules
-(fishCount ≥ 1, days ≥ 1, weights 1–5000 g, feedKg > 0) are enforced by Zod in
-step 4 and asserted by the `fcr.ts` tests in step 3.
+Full tables, fields and relations: [docs/schema.md](docs/schema.md).
+`InventoryItem` from the shared Agro base is intentionally absent — the
+ponds are the stock, and the stock value plays the Estimated Market Value
+role.
 
 ## Seed contents
 
-Feed price ₦1,200/kg · seven days of simulated TILAPIA (≈ ₦2,500/kg) and
-CATFISH (≈ ₦2,800/kg) prices · **one pond per status**, so every result state
-is visible from day one:
+Feed price ₦1,200/kg · seven days of simulated fish prices · **one pond per
+status**, so every result state is visible from day one:
 
 | Pond | Species | Check inputs | Status | FCR | Stock value |
 |---|---|---|---|---|---|
@@ -91,55 +112,18 @@ is visible from day one:
 | Nursery Pond | Tilapia | 1,000 fish · 30 d · 100 → 160 g · 40 kg feed | × Check numbers | 0.67 | ₦400,000 |
 | Back Pond | Tilapia | 800 fish · 14 d · 40 → 38 g · 35 kg feed | × No growth | — | ₦76,000 |
 
-Feed prices, FCR limits (Tilapia/Catfish fcrMax 1.8, adgMin 1.0 / 2.0) and
-prices are **placeholders**. An expert must review them before any real use.
+Feed prices, prices and the FCR limits (tilapia/catfish fcrMax 1.8, adgMin
+1.0 / 2.0) are **placeholders** — a fish expert must review them before any
+real use.
 
-## Market + weather (step 2)
+## Docs
 
-- **Market feed** (`/lib/market/`): deterministic generator (same crop + date
-  always gives the same price), nine-crop catalog, `MarketProvider` adapter —
-  simulated by default, live via `MARKET_API_URL` with automatic fallback.
-  Routes: `GET /api/market/prices` and `GET /api/market/history?crop&days`
-  (Zod-validated, 1–90 days). Quotes are cached into `PriceTick`. Full
-  documentation with samples: [docs/api.md](docs/api.md).
-- **Weather** (`/lib/weather/`): Open-Meteo by default (no key),
-  OpenWeatherMap when `OWM_API_KEY` is set. Shapes verified against docs and
-  a live call, validated with Zod. Server-only, 5 s timeout, one retry,
-  30-minute cache in `WeatherSnapshot`. On failure the last snapshot is
-  served with the "Saved data" badge; with no snapshot, an error card with a
-  Retry button.
-- **Pond alert**: any day ≥ 34 °C, or ≥ 20 mm rain tomorrow → "Fish eat less
-  on hot or stormy days. Feed 10% less today."
-- Salts are tuned so the demo always shows both directions — today TILAPIA
-  falls (−0.2%) while CATFISH rises (+1.2%). The trends test prints the
-  14-day trend for every crop.
-
-## Auth, shell and ponds (step 4A)
-
-- **Auth** (`lib/auth.ts`, `lib/actions/auth.ts`, `lib/session*.ts`):
-  email + password (at least 8 characters), bcrypt cost 10, Zod on every
-  server input, one plain sentence on failure. Sessions are iron-session: an
-  httpOnly, sameSite=lax cookie (`pondscale_session`), secure in production,
-  14-day lifetime. The secret comes from `SESSION_SECRET` only.
-- **Protection** (`middleware.ts` + `lib/guards.ts`): every page except
-  `/login` and `/signup` needs a session, and each page and server action
-  re-checks it. Pond reads go through `pondForFarm`, which puts `farmId` in
-  the WHERE clause, so a farmer can never reach another farmer's pond.
-- **Shell** (`components/AppShell.tsx`): 240 px sidebar at 1024 px+, top bar
-  from 640 px, phone bottom nav with four items. Settings and Log out stay in
-  the top bar/sidebar so the phone nav never exceeds four.
-- **Screens**: `/login`, `/signup`, `/` (dashboard), `/ponds`,
-  `/market`, `/weather`, `/settings`. The dashboard shows four stat cards, the
-  pond list with each pond's last status, weather and fish prices; every data
-  card keeps its Live / Saved data / Simulated badge.
-- **Weather resilience**: if the farm lookup fails, the weather card still
-  loads from the default coordinates and saves no snapshot.
-- **Tests**: `lib/auth.test.ts` (signup validation, wrong password, hashed
-  storage) and `lib/ownership.test.ts` (a farmer cannot read another
-  farmer's pond).
-
-## Next steps
-
-4B. New-check wizard (3 steps) + Zod server validation · 5. Result screen +
-money · 6. History chart · 7. Dashboard estimated market value ·
-8. Full click-through.
+- [docs/task-overview.md](docs/task-overview.md) — one page: APIs, live vs
+  simulated, the formulas with a worked example
+- [docs/api.md](docs/api.md) — every external call and route, with samples
+- [docs/schema.md](docs/schema.md) — tables, fields, relations
+- [docs/report-notes.md](docs/report-notes.md) — report material
+- [docs/demo-script.md](docs/demo-script.md) — 5–7 minute video script
+- [docs/rules-checklist.md](docs/rules-checklist.md) — judging rules proved
+  in the code
+- [docs/DEPLOY.md](docs/DEPLOY.md) — Vercel + Neon readiness

@@ -86,12 +86,17 @@ export default async function CheckWizardPage({
 
   try {
     farm = await getOrCreateFarm(userId);
-    ponds = await db.pond.findMany({
-      where: { farmId: farm.id },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true, species: true },
-    });
-    const feedPrice = await db.feedPrice.findUnique({ where: { farmId: farm.id } });
+    // Speed: ponds and the feed price are independent reads on the same
+    // farm, so they run together.
+    const [pondRows, feedPrice] = await Promise.all([
+      db.pond.findMany({
+        where: { farmId: farm.id },
+        orderBy: { name: "asc" },
+        select: { id: true, name: true, species: true },
+      }),
+      db.feedPrice.findUnique({ where: { farmId: farm.id } }),
+    ]);
+    ponds = pondRows;
     feedPriceKobo = feedPrice?.priceKobo ?? null;
   } catch {
     dbDown = true;
@@ -333,13 +338,14 @@ export default async function CheckWizardPage({
     feedKg: values.feedKg as number,
   };
 
+  // Speed: the market feed and the weather call are independent, so they
+  // run together; both are failures a page can survive on its own.
   const crop = pond.species === "TILAPIA" ? Crop.TILAPIA : Crop.CATFISH;
-  const priceCards = await loadPriceCards([crop]);
+  const [priceCards, weather] = await Promise.all([
+    loadPriceCards([crop]),
+    loadFarmWeather(farm ? { id: farm.id, lat: farm.lat, lon: farm.lon } : null),
+  ]);
   const fishPriceKobo = priceCards[0]?.quote.priceKobo ?? null;
-
-  const weather = await loadFarmWeather(
-    farm ? { id: farm.id, lat: farm.lat, lon: farm.lon } : null,
-  );
   const weatherAlert = weather.result.ok ? pondWeatherAlert(weather.result.daily) : null;
 
   // No invented numbers: without a market price there is no result screen.
