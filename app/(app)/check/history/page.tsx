@@ -7,6 +7,7 @@ import { FishIcon } from "@/components/icons";
 import { listChecksForFarm } from "@/lib/check/service";
 import { db } from "@/lib/db";
 import { getOrCreateFarm, requireUser } from "@/lib/guards";
+import { firstParam } from "@/lib/params";
 
 // Saved-check history (docs/02-pondscale.md step 4B): every check on this
 // farm, newest first, filterable per pond. The query is scoped by the farm
@@ -18,9 +19,11 @@ export const dynamic = "force-dynamic";
 export default async function HistoryPage({
   searchParams,
 }: {
-  searchParams: { pond?: string };
+  searchParams: { pond?: string | string[] };
 }) {
   const userId = await requireUser();
+  // A repeated ?pond= arrives as an array — take the first value.
+  const pondParam = firstParam(searchParams.pond);
 
   let ponds: { id: string; name: string }[] = [];
   let rows: CheckRowData[] = [];
@@ -43,7 +46,7 @@ export default async function HistoryPage({
     ]);
     ponds = pondRows;
     // Only this farmer's ponds can match the filter; anything else is ignored.
-    const pondId = ponds.find((pond) => pond.id === searchParams.pond)?.id;
+    const pondId = ponds.find((pond) => pond.id === pondParam)?.id;
     const nameOf = new Map(ponds.map((pond) => [pond.id, pond.name]));
     rows = checks
       .filter((check) => pondId === undefined || check.pondId === pondId)
@@ -60,7 +63,7 @@ export default async function HistoryPage({
     dbDown = true;
   }
 
-  const selectedPondId = ponds.find((pond) => pond.id === searchParams.pond)?.id;
+  const selectedPondId = ponds.find((pond) => pond.id === pondParam)?.id;
 
   return (
     <div className="space-y-6">

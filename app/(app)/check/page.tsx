@@ -17,6 +17,7 @@ import { evaluateWithFarmPrices } from "@/lib/check/evaluate";
 import { FCR_SHORT_NOTE } from "@/lib/fcr";
 import { fmtCount, fmtDay, fmtFcr, naira, speciesLabel } from "@/lib/format";
 import { getOrCreateFarm, requireUser } from "@/lib/guards";
+import { firstParam } from "@/lib/params";
 import { loadPriceCards } from "@/lib/market/view";
 import { pondWeatherAlert } from "@/lib/weather/alerts";
 import { loadFarmWeather } from "@/lib/weather/view";
@@ -33,14 +34,16 @@ export const dynamic = "force-dynamic";
 /// DEMO_MODE only adds the preview switch; it never changes data.
 const DEMO_MODE = process.env.DEMO_MODE === "true";
 
+/// At runtime every value can also be `string[]` — a repeated query
+/// parameter (?fish=1&fish=2) arrives as an array (lib/params.ts).
 interface WizardParams {
-  pond?: string;
-  step?: string;
-  fish?: string;
-  days?: string;
-  start?: string;
-  now?: string;
-  feed?: string;
+  pond?: string | string[];
+  step?: string | string[];
+  fish?: string | string[];
+  days?: string | string[];
+  start?: string | string[];
+  now?: string | string[];
+  feed?: string | string[];
 }
 
 const primaryCls =
@@ -78,6 +81,18 @@ export default async function CheckWizardPage({
   searchParams: WizardParams;
 }) {
   const userId = await requireUser();
+
+  // Normalise once: a hand-edited URL with repeated params must never
+  // reach .trim() on an array (it used to crash with a 500).
+  const query = {
+    pond: firstParam(searchParams.pond),
+    step: firstParam(searchParams.step),
+    fish: firstParam(searchParams.fish),
+    days: firstParam(searchParams.days),
+    start: firstParam(searchParams.start),
+    now: firstParam(searchParams.now),
+    feed: firstParam(searchParams.feed),
+  };
 
   let farm: Farm | null = null;
   let ponds: { id: string; name: string; species: Species }[] = [];
@@ -149,9 +164,9 @@ export default async function CheckWizardPage({
 
   // Step 0: choose the pond (cards). A pond id from another farm is not in
   // this list, so it lands here too — ownership is the WHERE clause.
-  const pond = ponds.find((candidate) => candidate.id === searchParams.pond) ?? null;
+  const pond = ponds.find((candidate) => candidate.id === query.pond) ?? null;
   if (!pond) {
-    const foreign = Boolean(searchParams.pond);
+    const foreign = Boolean(query.pond);
     return shell(
       <div className="space-y-4">
         {foreign ? (
@@ -192,11 +207,11 @@ export default async function CheckWizardPage({
     return trimmed ? trimmed : null;
   };
   const raw = {
-    fishCount: present(searchParams.fish),
-    days: present(searchParams.days),
-    startG: present(searchParams.start),
-    currentG: present(searchParams.now),
-    feedKg: present(searchParams.feed),
+    fishCount: present(query.fish),
+    days: present(query.days),
+    startG: present(query.start),
+    currentG: present(query.now),
+    feedKg: present(query.feed),
   } satisfies Record<keyof CheckNumbers, string | null>;
 
   const errors: Partial<Record<keyof CheckNumbers, string>> = {};
@@ -217,7 +232,7 @@ export default async function CheckWizardPage({
   // Clamp the requested step to what the numbers allow: an invalid (or
   // hand-edited) URL shows the step that needs fixing, with the error beside
   // the field.
-  const requested = searchParams.step ?? "1";
+  const requested = query.step ?? "1";
   let view: "1" | "2" | "3" | "result" = "1";
   if (requested === "2") view = step1Ok ? "2" : "1";
   else if (requested === "3") view = step2Ok ? "3" : step1Ok ? "2" : "1";
@@ -241,6 +256,11 @@ export default async function CheckWizardPage({
     </>
   );
 
+  // Each stepper gets its own key so a step transition (a soft navigation)
+  // always mounts a fresh input showing the URL's value. Without the key,
+  // React reuses the component state between steps and clicking Back showed
+  // step-2's typed grams in the fish and days boxes — silently corrupting
+  // the answers that feed the calculation.
   if (view === "1") {
     const days = Number(raw.days);
     const shortWindow = raw.days !== null && Number.isFinite(days) && days > 0 && days < 7;
@@ -250,11 +270,11 @@ export default async function CheckWizardPage({
         <StepBar step={1} />
         <div className="space-y-4">
           <div>
-            <NumberStepper id="fish" name="fish" label="Fish alive now (fish)" value={raw.fishCount ?? ""} min={1} max={100_000_000} />
+            <NumberStepper key="fish" id="fish" name="fish" label="Fish alive now (fish)" value={raw.fishCount ?? ""} min={1} max={100_000_000} />
             {errors.fishCount ? <FieldError text={errors.fishCount} /> : null}
           </div>
           <div>
-            <NumberStepper id="days" name="days" label="Days since the last check (days)" value={raw.days ?? ""} min={1} max={3650} />
+            <NumberStepper key="days" id="days" name="days" label="Days since the last check (days)" value={raw.days ?? ""} min={1} max={3650} />
             {errors.days ? <FieldError text={errors.days} /> : null}
             {shortWindow && !errors.days ? (
               <p className="mt-1 text-sm text-muted">
@@ -283,11 +303,11 @@ export default async function CheckWizardPage({
         <StepBar step={2} />
         <div className="space-y-4">
           <div>
-            <NumberStepper id="start" name="start" label="Weight at the start (g per fish)" value={raw.startG ?? ""} min={1} max={5000} />
+            <NumberStepper key="start" id="start" name="start" label="Weight at the start (g per fish)" value={raw.startG ?? ""} min={1} max={5000} />
             {errors.startG ? <FieldError text={errors.startG} /> : null}
           </div>
           <div>
-            <NumberStepper id="now" name="now" label="Weight now (g per fish)" value={raw.currentG ?? ""} min={1} max={5000} />
+            <NumberStepper key="now" id="now" name="now" label="Weight now (g per fish)" value={raw.currentG ?? ""} min={1} max={5000} />
             {errors.currentG ? <FieldError text={errors.currentG} /> : null}
           </div>
         </div>
@@ -310,7 +330,7 @@ export default async function CheckWizardPage({
         {pondContext}
         <StepBar step={3} />
         <div>
-          <NumberStepper id="feed" name="feed" label="Feed used (kg)" value={raw.feedKg ?? ""} step={0.5} min={0} />
+          <NumberStepper key="feed" id="feed" name="feed" label="Feed used (kg)" value={raw.feedKg ?? ""} step={0.5} min={0} />
           {errors.feedKg ? <FieldError text={errors.feedKg} /> : null}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
